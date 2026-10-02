@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Beach Buggy Racing - A-Frame</title>
+
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+
+    #HUD {
+      position: fixed;
+      top: 15px;
+      left: 15px;
+      z-index: 10;
+      color: white;
+      background: rgba(0,0,0,.7);
+      padding: 15px;
+      border-radius: 12px;
+      line-height: 1.6;
+      user-select: none;
+    }
+
+    #mensaje {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 20;
+      color: white;
+      background: rgba(0,0,0,.8);
+      padding: 25px 40px;
+      border-radius: 20px;
+      font-size: 30px;
+      display: none;
+      text-align: center;
+    }
+  </style>
+
+
+  <script>
+
+    /* =====================================================
+       VARIABLES DEL JUEGO
+    ===================================================== */
+
+    let velocidad = 0;
+    let angulo = 0;
+
+    const velocidadMaxima = 0.22;
+    const reversaMaxima = -0.10;
+    const aceleracion = 0.008;
+    const freno = 0.012;
+
+    let teclas = {};
+
+    window.addEventListener("keydown", function(e) {
+      teclas[e.key.toLowerCase()] = true;
+
+      if (e.key.toLowerCase() === "r") {
+        reiniciar();
+      }
+    });
+
+    window.addEventListener("keyup", function(e) {
+      teclas[e.key.toLowerCase()] = false;
+    });
+
+
+    /* =====================================================
+       COMPONENTE DEL BUGGY
+    ===================================================== */
+
+    AFRAME.registerComponent("buggy", {
+
+      init: function() {
+
+        this.el.object3D.position.set(0, 0.45, 25);
+
+        this.el.object3D.rotation.y = Math.PI;
+
+      },
+
+
+      tick: function() {
+
+        const dt = 1;
+
+        /* ---------------------------------------------
+           ACELERACIÓN
+        --------------------------------------------- */
+
+        if (teclas["w"] || teclas["arrowup"]) {
+
+          velocidad += aceleracion;
+
+          if (velocidad > velocidadMaxima) {
+            velocidad = velocidadMaxima;
+          }
+
+        }
+
+
+        /* ---------------------------------------------
+           REVERSA
+        --------------------------------------------- */
+
+        else if (teclas["s"] || teclas["arrowdown"]) {
+
+          velocidad -= aceleracion;
+
+          if (velocidad < reversaMaxima) {
+            velocidad = reversaMaxima;
+          }
+
+        }
+
+
+        /* ---------------------------------------------
+           FRENADO NATURAL
+        --------------------------------------------- */
+
+        else {
+
+          velocidad *= 0.96;
+
+        }
+
+
+        /* ---------------------------------------------
+           GIRO
+        --------------------------------------------- */
+
+        if (Math.abs(velocidad) > 0.01) {
+
+          if (teclas["a"] || teclas["arrowleft"]) {
+
+            this.el.object3D.rotation.y +=
+              0.035 * (velocidad / velocidadMaxima);
+
+          }
+
+          if (teclas["d"] || teclas["arrowright"]) {
+
+            this.el.object3D.rotation.y -=
+              0.035 * (velocidad / velocidadMaxima);
+
+          }
+
+        }
+
+
+        /* ---------------------------------------------
+           MOVIMIENTO
+        --------------------------------------------- */
+
+        const rot =
+          this.el.object3D.rotation.y;
+
+        const dx =
+          Math.sin(rot) * velocidad;
+
+        const dz =
+          Math.cos(rot) * velocidad;
+
+        const nuevaPos = {
+          x: this.el.object3D.position.x + dx,
+          z: this.el.object3D.position.z + dz
+        };
+
+
+        /* ---------------------------------------------
+           COLISIONES
+        --------------------------------------------- */
+
+        if (!hayColision(nuevaPos.x, nuevaPos.z)) {
+
+          this.el.object3D.position.x =
+            nuevaPos.x;
+
+          this.el.object3D.position.z =
+            nuevaPos.z;
+
+        } else {
+
+          velocidad *= -0.35;
+
+          mostrarMensaje("💥 ¡COLISIÓN!");
+
+        }
+
+
+        /* ---------------------------------------------
+           ACTUALIZAR HUD
+        --------------------------------------------- */
+
+        document.querySelector("#velocidad").innerText =
+          Math.round(Math.abs(velocidad) * 450) + " km/h";
+
+      }
+
+    });
+
+
+    /* =====================================================
+       SISTEMA DE COLISIONES
+    ===================================================== */
+
+    const obstaculos = [];
+
+
+    function registrarObstaculo(x, z, radio) {
+
+      obstaculos.push({
+        x: x,
+        z: z,
+        radio: radio
+      });
+
+    }
+
+
+    function hayColision(x, z) {
+
+      const radioBuggy = 1.25;
+
+      for (let i = 0; i < obstaculos.length; i++) {
+
+        const o = obstaculos[i];
+
+        const dx = x - o.x;
+        const dz = z - o.z;
+
+        const distancia =
+          Math.sqrt(dx * dx + dz * dz);
+
+        if (distancia < radioBuggy + o.radio) {
+
+          return true;
+
+        }
+
+      }
+
+      /* Límites del mapa */
+
+      if (x < -70 || x > 70 ||
+          z < -70 || z > 70) {
+
+        return true;
+
+      }
+
+      return false;
+
+    }
+
+
+    /* =====================================================
+       COMPONENTE PARA REGISTRAR OBSTÁCULOS
+    ===================================================== */
+
+    AFRAME.registerComponent("obstaculo", {
+
+      schema: {
+        radio: {
+          type: "number",
+          default: 1
+        }
+      },
+
+      init: function() {
+
+        const p =
+          this.el.object3D.position;
+
+        registrarObstaculo(
+          p.x,
+          p.z,
+          this.data.radio
+        );
+
+      }
+
+    });
+
+
+    /* =====================================================
+       CHECKPOINTS
+    ===================================================== */
+
+    AFRAME.registerComponent("checkpoint", {
+
+      init: function() {
+
+        this.el.addEventListener("collide", () => {
+
+          mostrarMensaje("🏁 ¡CHECKPOINT!");
+
+        });
+
+      }
+
+    });
+
+
+    /* =====================================================
+       META
+    ===================================================== */
+
+    AFRAME.registerComponent("meta", {
+
+      init: function() {
+
+        this.el.addEventListener("click", () => {
+
+          mostrarMensaje(
+            "🏆 ¡LLEGASTE A LA META!"
+          );
+
+        });
+
+      }
+
+    });
+
+
+    /* =====================================================
+       MENSAJES
+    ===================================================== */
+
+    let timeoutMensaje;
+
+    function mostrarMensaje(texto) {
+
+      const m =
+        document.querySelector("#mensaje");
+
+      m.innerHTML = texto;
+
+      m.style.display = "block";
+
+      clearTimeout(timeoutMensaje);
+
+      timeoutMensaje =
+        setTimeout(() => {
+
+          m.style.display = "none";
+
+        }, 1200);
+
+    }
+
+
+    /* =====================================================
+       REINICIAR
+    ===================================================== */
+
+    function reiniciar() {
+
+      const buggy =
+        document.querySelector("#buggy");
+
+      buggy.object3D.position.set(
+        0,
+        0.45,
+        25
+      );
+
+      buggy.object3D.rotation.y =
+        Math.PI;
+
+      velocidad = 0;
+
+      mostrarMensaje(
+        "🔄 CARRERA REINICIADA"
+      );
+
+    }
+
+  </script>
+
+</head>
+
+
+<body>
+
+
+<!-- =====================================================
+     HUD
+===================================================== -->
+
+<div id="HUD">
+
+  🏖️ <b>BEACH BUGGY RACING</b>
+
+  <br><br>
+
+  <b>W / ↑</b> Acelerar<br>
+  <b>S / ↓</b> Reversa<br>
+  <b>A / ←</b> Girar izquierda<br>
+  <b>D / →</b> Girar derecha<br>
+  <b>R</b> Reiniciar
+
+  <br><br>
+
+  Velocidad:
+  <span id="velocidad">0 km/h</span>
+
+</div>
+
+
+<div id="mensaje"></div>
+
+
+<a-scene>
+
+
+  <!-- =================================================
+       ILUMINACIÓN
+  ================================================= -->
+
+  <a-sky color="#55bde8"></a-sky>
+
+  <a-light
+    type="ambient"
+    intensity="1.4"
+    color="#ffffff">
+  </a-light>
+
+  <a-light
+    type="directional"
+    intensity="2"
+    position="-20 30 10">
+  </a-light>
+
+
+  <!-- =================================================
+       PLAYA
+  ================================================= -->
+
+  <a-plane
+    rotation="-90 0 0"
+    width="150"
+    height="150"
+    color="#e8c879">
+  </a-plane>
+
+
+  <!-- =================================================
+       AGUA
+  ================================================= -->
+
+  <a-plane
+    rotation="-90 0 0"
+    position="0 0 -55"
+    width="150"
+    height="40"
+    color="#27a9d6">
+  </a-plane>
+
+
+  <!-- =================================================
+       CAMINO DE CARRERA
+  ================================================= -->
+
+  <a-plane
+    rotation="-90 0 0"
+    position="0 0.02 0"
+    width="18"
+    height="130"
+    color="#c69a52">
+  </a-plane>
+
+
+  <!-- =================================================
+       BUGGY
+  ================================================= -->
+
+  <a-entity
+    id="buggy"
+    buggy
+    position="0 0.45 25">
+
+
+    <!-- CHASIS -->
+
+    <a-box
+      position="0 0.6 0"
+      width="2.4"
+      height=".45"
+      depth="3"
+      color="#e53935">
+    </a-box>
+
+
+    <!-- PARTE DELANTERA -->
+
+    <a-box
+      position="0 0.95 -0.9"
+      width="2"
+      height=".35"
+      depth="1"
+      color="#ff7043">
+    </a-box>
+
+
+    <!-- ASIENTO -->
+
+    <a-box
+      position="0 1.05 .45"
+      width="1.3"
+      height=".3"
+      depth=".9"
+      color="#222">
+    </a-box>
+
+
+    <!-- VOLANTE -->
+
+    <a-torus
+      position="0 1.25 -.25"
+      rotation="90 0 0"
+      radius=".25"
+      radius-tubular=".05"
+      color="#111">
+    </a-torus>
+
+
+    <!-- BARRA SUPERIOR -->
+
+    <a-cylinder
+      position="0 1.7 .35"
+      rotation="90 0 0"
+      radius=".05"
+      height="2.2"
+      color="#222">
+    </a-cylinder>
+
+
+    <!-- RUEDA DELANTERA IZQUIERDA -->
+
+    <a-cylinder
+      position="-1.2 .45 -.8"
+      rotation="0 0 90"
+      radius=".45"
+      height=".35"
+      color="#111">
+    </a-cylinder>
+
+
+    <!-- RUEDA DELANTERA DERECHA -->
+
+    <a-cylinder
+      position="1.2 .45 -.8"
+      rotation="0 0 90"
+      radius=".45"
+      height=".35"
+      color="#111">
+    </a-cylinder>
+
+
+    <!-- RUEDA TRASERA IZQUIERDA -->
+
+    <a-cylinder
+      position="-1.2 .45 .9"
+      rotation="0 0 90"
+      radius=".5"
+      height=".4"
+      color="#111">
+    </a-cylinder>
+
+
+    <!-- RUEDA TRASERA DERECHA -->
+
+    <a-cylinder
+      position="1.2 .45 .9"
+      rotation="0 0 90"
+      radius=".5"
+      height=".4"
+      color="#111">
+    </a-cylinder>
+
+
+    <!-- FAROS -->
+
+    <a-sphere
+      position="-.7 .9 -1.55"
+      radius=".16"
+      color="#ffffaa">
+    </a-sphere>
+
+    <a-sphere
+      position=".7 .9 -1.55"
+      radius=".16"
+      color="#ffffaa">
+    </a-sphere>
+
+
+  </a-entity>
+
+
+  <!-- =================================================
+       RAMPA 1
+  ================================================= -->
+
+  <a-box
+    position="0 .8 5"
+    width="10"
+    height="1.6"
+    depth="6"
+    rotation="-15 0 0"
+    color="#a66b32">
+  </a-box>
+
+
+  <!-- =================================================
+       RAMPA 2
+  ================================================= -->
+
+  <a-box
+    position="25 .8 -20"
+    width="8"
+    height="1.6"
+    depth="6"
+    rotation="-18 40 0"
+    color="#a66b32">
+  </a-box>
+
+
+  <!-- =================================================
+       ROCAS
+  ================================================= -->
+
+  <a-entity
+    position="-12 1 -5"
+    obstaculo="radio:2">
+
+    <a-icosahedron
+      radius="2"
+      color="#777">
+    </a-icosahedron>
+
+  </a-entity>
+
+
+  <a-entity
+    position="12 1 -10"
+    obstaculo="radio:2">
+
+    <a-icosahedron
+      radius="2"
+      color="#666">
+    </a-icosahedron>
+
+  </a-entity>
+
+
+  <a-entity
+    position="-18 1 -30"
+    obstaculo="radio:2.5">
+
+    <a-icosahedron
+      radius="2.5"
+      color="#555">
+    </a-icosahedron>
+
+  </a-entity>
+
+
+  <!-- =================================================
+       PALMERAS
+  ================================================= -->
+
+  <a-entity position="-12 0 -15">
+
+    <a-cylinder
+      position="0 2 0"
+      radius=".35"
+      height="4"
+      color="#8b572a">
+    </a-cylinder>
+
+    <a-cone
+      position="0 4.5 0"
+      radius="2"
+      height="2"
+      color="#16823b">
+    </a-cone>
+
+  </a-entity>
+
+
+  <a-entity position="15 0 -5">
+
+    <a-cylinder
+      position="0 2 0"
+      radius=".35"
+      height="4"
+      color="#8b572a">
+    </a-cylinder>
+
+    <a-cone
+      position="0 4.5 0"
+      radius="2"
+      height="2"
+      color="#16823b">
+    </a-cone>
+
+  </a-entity>
+
+
+  <a-entity position="-25 0 -40">
+
+    <a-cylinder
+      position="0 2 0"
+      radius=".35"
+      height="4"
+      color="#8b572a">
+    </a-cylinder>
+
+    <a-cone
+      position="0 4.5 0"
+      radius="2"
+      height="2"
+      color="#16823b">
+    </a-cone>
+
+  </a-entity>
+
+
+  <a-entity position="28 0 -35">
+
+    <a-cylinder
+      position="0 2 0"
+      radius=".35"
+      height="4"
+      color="#8b572a">
+    </a-cylinder>
+
+    <a-cone
+      position="0 4.5 0"
+      radius="2"
+      height="2"
+      color="#16823b">
+    </a-cone>
+
+  </a-entity>
+
+
+  <!-- =================================================
+       BARRILES / OBSTÁCULOS
+  ================================================= -->
+
+  <a-cylinder
+    position="-5 .7 -12"
+    radius=".7"
+    height="1.4"
+    color="#d32f2f"
+    obstaculo="radio: .8">
+  </a-cylinder>
+
+
+  <a-cylinder
+    position="6 .7 -18"
+    radius=".7"
+    height="1.4"
+    color="#1976d2"
+    obstaculo="radio: .8">
+  </a-cylinder>
+
+
+  <a-cylinder
+    position="-7 .7 -35"
+    radius=".7"
+    height="1.4"
+    color="#fbc02d"
+    obstaculo="radio: .8">
+  </a-cylinder>
+
+
+  <!-- =================================================
+       CHECKPOINT
+  ================================================= -->
+
+  <a-entity position="0 0 -25">
+
+    <a-box
+      position="-8 3 0"
+      width=".5"
+      height="6"
+      depth=".5"
+      color="#ff2222">
+    </a-box>
+
+    <a-box
+      position="8 3 0"
+      width=".5"
+      height="6"
+      depth=".5"
+      color="#ff2222">
+    </a-box>
+
+    <a-box
+      position="0 5.5 0"
+      width="16"
+      height=".5"
+      depth=".5"
+      color="#ffffff">
+    </a-box>
+
+    <a-text
+      value="CHECKPOINT"
+      position="0 4.5 -.5"
+      align="center"
+      width="8"
+      color="#ffffff">
+    </a-text>
+
+  </a-entity>
+
+
+  <!-- =================================================
+       META
+  ================================================= -->
+
+  <a-entity position="0 0 -55">
+
+    <a-box
+      position="-8 3 0"
+      width=".5"
+      height="6"
+      depth=".5"
+      color="#ff0000">
+    </a-box>
+
+    <a-box
+      position="8 3 0"
+      width=".5"
+      height="6"
+      depth=".5"
+      color="#ff0000">
+    </a-box>
+
+    <a-box
+      position="0 5.5 0"
+      width="16"
+      height=".5"
+      depth=".5"
+      color="#ffffff">
+    </a-box>
+
+    <a-text
+      value="🏁 META"
+      position="0 4.5 -.5"
+      align="center"
+      width="10"
+      color="#ffff00">
+    </a-text>
+
+  </a-entity>
+
+
+  <!-- =================================================
+       BANDERAS
+  ================================================= -->
+
+  <a-box
+    position="-8 2 -55"
+    width=".15"
+    height="4"
+    depth=".15"
+    color="#222">
+  </a-box>
+
+  <a-box
+    position="8 2 -55"
+    width=".15"
+    height="4"
+    depth=".15"
+    color="#222">
+  </a-box>
+
+
+  <!-- =================================================
+       CÁMARA
+  ================================================= -->
+
+  <a-entity
+    position="0 5 10"
+    camera
+    look-controls
+    wasd-controls="enabled: false">
+
+  </a-entity>
+
+
+</a-scene>
+
+</body>
+</html>
